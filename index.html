@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f5f6f7">
+<title>Pay Period Budget</title>
+<style>
+:root{--bg:#f5f6f7;--card:#fff;--ink:#20272b;--muted:#6f797e;--line:#dce2e5;--accent:#365d64;--soft:#e9f0f1;--good:#2f6b54;--warn:#8a5a38}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.app{max-width:720px;margin:auto;padding:20px 16px 80px} header{padding:14px 2px 8px} h1{font-size:30px;margin:0 0 6px} .sub{color:var(--muted);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin:14px 0;box-shadow:0 1px 2px #00000008}
+h2{font-size:18px;margin:0 0 14px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field{margin:9px 0}
+label{display:block;color:var(--muted);font-size:12px;margin:0 0 5px} input,select{width:100%;font:inherit;padding:12px;border:1px solid #cfd7da;border-radius:12px;background:#fff;color:var(--ink)}
+button{font:inherit;border:0;border-radius:12px;padding:12px 14px;background:var(--accent);color:white;font-weight:650}button.secondary{background:var(--soft);color:var(--accent)}
+button.danger{background:#f6e9e8;color:#8b3e38}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.summary{display:grid;grid-template-columns:1fr 1fr;gap:10px}.tile{background:var(--soft);border-radius:15px;padding:13px}.tile span{display:block;color:var(--muted);font-size:12px}.tile b{font-size:20px}
+.period{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}.period:first-of-type{border-top:0;padding-top:0}
+.period-title{display:flex;justify-content:space-between;align-items:center;gap:10px}.period-title strong{font-size:16px}.pill{font-size:12px;background:var(--soft);padding:6px 9px;border-radius:999px;color:var(--accent)}
+.bill,.tx{display:grid;grid-template-columns:1.4fr .8fr .8fr auto;gap:7px;align-items:end;margin:8px 0}.bill input,.tx input{padding:10px}.x{padding:10px 12px;background:#eef1f2;color:#667}
+.calc{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}.calc-line{display:flex;justify-content:space-between;padding:5px 0}.calc-line.big{font-size:18px;font-weight:750;color:var(--good)}
+.savings{background:#f0f4f1}.note{font-size:12px;color:var(--muted);line-height:1.4}.sectionhead{display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px}
+@media(max-width:520px){.bill,.tx{grid-template-columns:1fr 1fr}.bill .x,.tx .x{grid-column:2}.summary{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1>Pay Period Budget</h1><div class="sub">Plan each paycheck, bill due date, spending, and savings in one place.</div></header>
+
+<div class="card">
+<h2>Current cash & savings</h2>
+<div class="row">
+ <div class="field"><label>Starting checking balance</label><input id="checkingStart" type="number" step=".01"></div>
+ <div class="field"><label>Current savings balance</label><input id="savingsStart" type="number" step=".01"></div>
+</div>
+<div class="summary">
+ <div class="tile"><span>Projected checking</span><b id="checkingProjected">$0.00</b></div>
+ <div class="tile"><span>Projected savings</span><b id="savingsProjected">$0.00</b></div>
+</div>
+</div>
+
+<div id="periods"></div>
+
+<div class="card">
+<h2>Recurring bills</h2>
+<div class="note">Change any due date or amount. Bills automatically appear in the pay period containing that due date.</div>
+<div id="bills"></div>
+<div class="actions"><button class="secondary" onclick="addBill()">+ Add bill</button></div>
+</div>
+
+<div class="card">
+<h2>Additional transactions / expenses</h2>
+<div class="note">Add purchases, one-time payments, deposits, or other activity. Use a negative amount for money coming into checking.</div>
+<div id="transactions"></div>
+<div class="actions"><button class="secondary" onclick="addTx()">+ Add transaction</button></div>
+</div>
+
+<div class="card savings">
+<h2>Savings tracker</h2>
+<div class="calc-line"><span>Starting savings</span><b id="sStart">$0.00</b></div>
+<div class="calc-line"><span>Transfers to savings</span><b id="sAdds">$0.00</b></div>
+<div class="calc-line big"><span>Projected savings balance</span><b id="sTotal">$0.00</b></div>
+</div>
+
+<div class="card">
+<h2>Backup</h2>
+<div class="actions"><button onclick="exportData()">Export backup</button><button class="secondary" onclick="document.getElementById('importFile').click()">Import backup</button><button class="danger" onclick="resetData()">Reset</button></div>
+<input id="importFile" type="file" accept=".json,application/json" hidden>
+<p class="note">Your entries are stored in this browser on this device. Export a backup occasionally so you can restore them if browser data is cleared.</p>
+</div>
+</div>
+
+<script>
+const KEY="payPeriodBudgetV4";
+const today=new Date(), y=today.getFullYear(), m=today.getMonth();
+const iso=d=>{let z=new Date(d);return z.toISOString().slice(0,10)}
+const defaultData={
+ checkingStart:0,savingsStart:0,
+ periods:[
+  {name:"Pay Period 1",start:iso(new Date(y,m,1)),end:iso(new Date(y,m,15)),p1:0,p2:0,savings:0},
+  {name:"Pay Period 2",start:iso(new Date(y,m,16)),end:iso(new Date(y,m+1,0)),p1:0,p2:0,savings:0}
+ ],
+ bills:[
+  {name:"Housing",amount:0,due:iso(new Date(y,m,1))},
+  {name:"Car / loan",amount:0,due:iso(new Date(y,m,10))},
+  {name:"Credit card",amount:0,due:iso(new Date(y,m,20))},
+  {name:"Utilities",amount:0,due:iso(new Date(y,m,25))}
+ ],
+ tx:[]
+};
+let data=load();
+function load(){try{return {...structuredClone(defaultData),...JSON.parse(localStorage.getItem(KEY)||"{}")}}catch(e){return structuredClone(defaultData)}}
+function save(){localStorage.setItem(KEY,JSON.stringify(data))}
+function money(n){return Number(n||0).toLocaleString("en-US",{style:"currency",currency:"USD"})}
+function inPeriod(date,p){return date && date>=p.start && date<=p.end}
+function render(){
+ document.getElementById("checkingStart").value=data.checkingStart||0;
+ document.getElementById("savingsStart").value=data.savingsStart||0;
+ const P=document.getElementById("periods");P.innerHTML="";
+ let rolling=Number(data.checkingStart||0);
+ data.periods.forEach((p,i)=>{
+   const bills=data.bills.filter(b=>inPeriod(b.due,p));
+   const txs=data.tx.filter(t=>inPeriod(t.date,p));
+   const income=Number(p.p1||0)+Number(p.p2||0);
+   const billTotal=bills.reduce((s,b)=>s+Number(b.amount||0),0);
+   const txTotal=txs.reduce((s,t)=>s+Number(t.amount||0),0);
+   const start=rolling, afterIncome=start+income;
+   const available=afterIncome-billTotal-Number(p.savings||0);
+   const ending=available-txTotal;
+   rolling=ending;
+   const el=document.createElement("div");el.className="card";
+   el.innerHTML=`<div class="period-title"><strong>${p.name}</strong><span class="pill">${p.start||"—"} → ${p.end||"—"}</span></div>
+   <div class="row">
+    <div class="field"><label>Period start</label><input type="date" value="${p.start}" onchange="updPeriod(${i},'start',this.value)"></div>
+    <div class="field"><label>Period end</label><input type="date" value="${p.end}" onchange="updPeriod(${i},'end',this.value)"></div>
+   </div>
+   <div class="row">
+    <div class="field"><label>Paycheck 1</label><input type="number" step=".01" value="${p.p1||0}" oninput="updPeriod(${i},'p1',this.value)"></div>
+    <div class="field"><label>Paycheck 2</label><input type="number" step=".01" value="${p.p2||0}" oninput="updPeriod(${i},'p2',this.value)"></div>
+   </div>
+   <div class="field"><label>Move to savings</label><input type="number" step=".01" value="${p.savings||0}" oninput="updPeriod(${i},'savings',this.value)"></div>
+   <div class="calc">
+    <div class="calc-line"><span>Starting balance</span><b>${money(start)}</b></div>
+    <div class="calc-line"><span>+ Paychecks</span><b>${money(income)}</b></div>
+    <div class="calc-line"><span>Bills due in this period</span><b>− ${money(billTotal)}</b></div>
+    <div class="calc-line"><span>Transfer to savings</span><b>− ${money(p.savings)}</b></div>
+    <div class="calc-line big"><span>Remaining available to spend</span><b>${money(available)}</b></div>
+    <div class="calc-line"><span>Additional transactions</span><b>− ${money(txTotal)}</b></div>
+    <div class="calc-line"><span>Projected ending balance</span><b>${money(ending)}</b></div>
+   </div>
+   <div class="sectionhead"><b>Bills in this period</b><span class="note">${bills.length} bill${bills.length==1?"":"s"}</span></div>
+   ${bills.length?bills.map(b=>`<div class="calc-line"><span>${b.name} <small>(${b.due})</small></span><b>${money(b.amount)}</b></div>`).join(""):'<div class="note">No bills fall inside these dates.</div>'}
+   `;
+   P.appendChild(el);
+ });
+ const b=document.getElementById("bills");b.innerHTML="";
+ data.bills.forEach((x,i)=>{b.insertAdjacentHTML("beforeend",`<div class="bill">
+  <div><label>Bill</label><input value="${esc(x.name)}" oninput="updBill(${i},'name',this.value)"></div>
+  <div><label>Amount</label><input type="number" step=".01" value="${x.amount||0}" oninput="updBill(${i},'amount',this.value)"></div>
+  <div><label>Due date</label><input type="date" value="${x.due||''}" onchange="updBill(${i},'due',this.value)"></div>
+  <button class="x" onclick="delBill(${i})">×</button></div>`)});
+ const t=document.getElementById("transactions");t.innerHTML="";
+ data.tx.forEach((x,i)=>{t.insertAdjacentHTML("beforeend",`<div class="tx">
+  <div><label>Description</label><input value="${esc(x.name)}" oninput="updTx(${i},'name',this.value)"></div>
+  <div><label>Amount</label><input type="number" step=".01" value="${x.amount||0}" oninput="updTx(${i},'amount',this.value)"></div>
+  <div><label>Date</label><input type="date" value="${x.date||''}" onchange="updTx(${i},'date',this.value)"></div>
+  <button class="x" onclick="delTx(${i})">×</button></div>`)});
+ const adds=data.periods.reduce((s,p)=>s+Number(p.savings||0),0);
+ document.getElementById("checkingProjected").textContent=money(rolling);
+ document.getElementById("savingsProjected").textContent=money(Number(data.savingsStart||0)+adds);
+ document.getElementById("sStart").textContent=money(data.savingsStart);
+ document.getElementById("sAdds").textContent=money(adds);
+ document.getElementById("sTotal").textContent=money(Number(data.savingsStart||0)+adds);
+}
+function esc(s){return String(s||"").replaceAll("&","&amp;").replaceAll('"',"&quot;").replaceAll("<","&lt;")}
+function updPeriod(i,k,v){data.periods[i][k]=["p1","p2","savings"].includes(k)?Number(v):v;save();render()}
+function updBill(i,k,v){data.bills[i][k]=k==="amount"?Number(v):v;save();render()}
+function updTx(i,k,v){data.tx[i][k]=k==="amount"?Number(v):v;save();render()}
+function addBill(){data.bills.push({name:"New bill",amount:0,due:""});save();render()}
+function delBill(i){data.bills.splice(i,1);save();render()}
+function addTx(){data.tx.push({name:"New expense",amount:0,date:""});save();render()}
+function delTx(i){data.tx.splice(i,1);save();render()}
+document.getElementById("checkingStart").addEventListener("input",e=>{data.checkingStart=Number(e.target.value);save();render()});
+document.getElementById("savingsStart").addEventListener("input",e=>{data.savingsStart=Number(e.target.value);save();render()});
+function exportData(){const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="budget-backup.json";a.click();URL.revokeObjectURL(a.href)}
+document.getElementById("importFile").addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{data=JSON.parse(r.result);save();render()}catch{alert("That backup file could not be read.")}};r.readAsText(f)});
+function resetData(){if(confirm("Reset all budget data on this device?")){data=structuredClone(defaultData);save();render()}}
+render();
+</script>
+</body></html>
